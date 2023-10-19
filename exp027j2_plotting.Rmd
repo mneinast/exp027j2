@@ -1,0 +1,239 @@
+---
+title: "exp027j2_plotting"
+output: html_notebook
+---
+
+
+based on exp011b plotting
+
+takes data from exp027j2_load and wrangle, exp027j2_nonlinear fitting
+
+
+
+# libraries
+```{r}
+library(tidyverse)
+library(broom)
+library(qs)
+```
+
+
+# directories
+```{r}
+# set directory path for input data (NOTE ONLY USE CORRECTED DATA)
+input_free <- "./input/"
+
+# output
+output_directory <- "./output/"
+
+
+```
+
+# import wrangled peakdata and fits
+```{r}
+labeled.data <- read_tsv(paste0(output_directory, "labeled data.tsv"))
+
+fits.ssasymp <- qread(file = paste0(output_directory, "fits_ssasymp.qs")) # reading nested tables requires qs package
+```
+
+filter away some unidentified samples
+```{r}
+labeled.data <-
+  labeled.data %>% 
+    drop_na(Animal) # remove unidentified samples
+  
+  
+fits.ssasymp <-
+  fits.ssasymp %>%
+    drop_na(Method) # remove unidentified samples
+
+```
+
+# plot plasma amino acid labeling for each animal to confirm infusions
+```{r}
+
+g <-
+labeled.data %>%
+  filter(isotopeLabel == "C12 PARENT") %>%
+    filter(Tissue == "plasma") %>%
+  ggplot(aes(x=Hours, y=(1-fraction.all), color=compound)) +
+    egg::theme_article() +
+    geom_point() +
+    geom_line() +
+    facet_wrap(~Animal)
+g
+ggsave(g, filename="plasma labeling from each animal.pdf", device="pdf", width=14, height=10, limitsize=T, path=output_directory)
+
+
+```
+
+
+filter away samples from mice which had failed infusions
+```{r}
+
+# M02 was ok but had low labeling throughout
+labeled.data <- labeled.data %>% filter(Animal != "exp027j2_M02")
+
+# M04 was good at first, but failed between 2-4 hours.
+labeled.data <- labeled.data %>% filter(Animal != "exp027j2_M04")
+
+```
+
+
+
+
+
+# plot overall labeling
+
+```{r}
+# all compounds faceted
+g <-
+labeled.data %>%
+  #filter(Compound %in% c("lactate", "pyruvate")) %>%
+    filter(isotopeLabel != "C12 PARENT") %>%
+      filter(Tissue == "plasma") %>%
+      ggplot(aes(x=Hours, y=fraction.all, color=isotopeLabel, shape=Animal)) +
+         egg::theme_article() +
+         geom_point() +
+         #ylim(0, 0.4) +
+         theme(aspect.ratio = 1) +
+         facet_wrap(compound~Method)
+g
+
+ggsave(g, filename="all compounds labeling.pdf", device="pdf", width=21, height=21, limitsize=T, path=output_directory)
+
+
+```
+
+simplify to 1-C12 Parent
+```{r}
+
+# all compounds faceted
+g <-
+labeled.data %>%
+  #filter(Compound %in% c("lactate", "pyruvate")) %>%
+    filter(isotopeLabel == "C12 PARENT") %>%
+      filter(Tissue == "plasma") %>%
+      ggplot(aes(x=Hours, y=(1-fraction.all), color=Animal)) +
+         egg::theme_article() +
+         geom_point() +
+         geom_line(aes(group=Animal)) +
+         #ylim(0, 0.4) +
+         theme(aspect.ratio = 1) +
+         facet_wrap(compound~Method)
+g
+
+ggsave(g, filename="all compounds labeling combined.pdf", device="pdf", width=21, height=21, limitsize=T, path=output_directory)
+
+```
+
+
+# compare labeling between tissues and plasma
+
+```{r}
+# compare Normalized Labeling (tissue/plasma) for amino acids only
+# reorganized from exp011b version so that this will always plot all tissues included
+g<-
+labeled.data %>%
+  filter(Method =="free") %>% filter(Hours==4) %>%
+    filter(compound %in% c("arginine", "histidine", "lysine", "aspartate", "glutamate", "serine", "threonine", "asparagine", "glutamine", "cysteine", "selenocysteine", "glycine", "proline", "alanine", "valine", "isoleucine", "leucine", "methionine", "phenylalanine", "tyrosine", "tryptophan")) %>%
+    filter(isotopeLabel == "C12 PARENT") %>%
+      mutate(plasma = if_else(Tissue=="plasma", fraction.all, NA)) %>% # pull out plasma values into a new column
+        group_by(compound, Hours, Tracer, Animal) %>%
+          mutate(ref.plasma = max(plasma, na.rm=T)) %>% # apply plasma values to corresponding observations
+        ggplot(aes(x=compound, y=(1-fraction.all)/(1-ref.plasma), color=Tissue)) +
+          egg::theme_article() +
+          geom_point() +
+          #xlim(0, 0.15) +
+          ylim(0, 2) +
+          ylab("Tissue/Plasma") +
+          theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+          #facet_wrap(~compound) +
+          ggtitle("Free Amino Acid Labeling in plasma vs tissues", subtitle="Normalized Labeling: Tissue/Plasma")
+g
+ggsave(g, filename="tissue vs plasma amino acids normalized labeling.pdf", device="pdf", width=14, height=8, limitsize=T, path=output_directory)
+
+
+# all compounds
+g<-
+labeled.data %>%
+  filter(Method =="free") %>% filter(Hours==4) %>%
+    filter(isotopeLabel == "C12 PARENT") %>%
+      mutate(plasma = if_else(Tissue=="plasma", fraction.all, NA)) %>% # pull out plasma values into a new column
+        group_by(compound, Hours, Tracer, Animal) %>%
+          mutate(ref.plasma = max(plasma, na.rm=T)) %>% # apply plasma values to corresponding observations
+        ggplot(aes(x=compound, y=(1-fraction.all)/(1-ref.plasma), color=Tissue)) +
+          egg::theme_article() +
+          geom_point() +
+          #xlim(0, 0.15) +
+          ylim(0, 2) +
+          ylab("Tissue/Plasma") +
+          theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+          #facet_wrap(~compound) +
+          ggtitle("Free Amino Acid Labeling in plasma vs tissues", subtitle="Normalized Labeling: Tissue/Plasma")
+g
+ggsave(g, filename="tissue vs plasma all compounds normalized labeling.pdf", device="pdf", width=14, height=8, limitsize=T, path=output_directory)
+```
+
+
+
+scatter tissue L vs plasma L
+```{r}
+# similar but focus on each tissue, showing scatter of plasma vs tissue for all compounds
+g<-
+labeled.data %>%
+  filter(Method =="free") %>%
+    filter(Hours==4) %>%
+    filter(compound %in% c("arginine", "histidine", "lysine", "aspartate", "glutamate", "serine", "threonine", "asparagine", "glutamine", "cysteine", "selenocysteine", "glycine", "proline", "alanine", "valine", "isoleucine", "leucine", "methionine", "phenylalanine", "tyrosine", "tryptophan")) %>%
+    filter(isotopeLabel == "C12 PARENT") %>%
+      mutate(plasma = if_else(Tissue=="plasma", fraction.all, NA)) %>% # pull out plasma values into a new column
+        group_by(compound, Hours, Tracer, Animal) %>%
+          mutate(ref.plasma = max(plasma, na.rm=T)) %>% # apply plasma values to corresponding observations
+        ggplot(aes(x=(1-ref.plasma), y=(1-fraction.all), color=compound)) +
+          egg::theme_article() +
+          geom_point() +
+          facet_wrap(~Tissue) +
+          theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+          geom_abline(slope=1) +
+          xlim(0, 0.5) +
+          ylim(0, 0.5) +
+          theme(aspect.ratio=1) +
+          #facet_wrap(~compound) +
+          ggtitle("Free Amino Acid Labeling in plasma vs tissues", subtitle="Scatter Tissue vs Plasma")
+g
+ggsave(g, filename="tissue vs plasma amino acids scatter.pdf", device="pdf", width=8, height=8, limitsize=T, path=output_directory)
+
+```
+
+
+
+focus on aspartate and valine as examples
+```{r}
+labeled.data %>%
+  filter(Method =="free") %>%
+    filter(Hours==4) %>%
+    filter(compound %in% c("aspartate", "valine")) %>%
+    filter(isotopeLabel == "C12 PARENT") %>%
+      mutate(plasma = if_else(Tissue=="plasma", fraction.all, NA)) %>% # pull out plasma values into a new column
+        group_by(compound, Hours, Tracer, Animal) %>%
+          mutate(ref.plasma = max(plasma, na.rm=T)) %>% # apply plasma values to corresponding observations
+        ggplot(aes(x=(1-ref.plasma), y=(1-fraction.all), color=compound)) +
+          egg::theme_article() +
+          geom_point() +
+          facet_wrap(~Tissue) +
+          theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+          geom_abline(slope=1) +
+          xlim(0, 0.5) +
+          ylim(0, 0.5) +
+          theme(aspect.ratio=1) +
+          #facet_wrap(~compound) +
+          ggtitle("Free Amino Acid Labeling in plasma vs tissues", subtitle="Scatter Tissue vs Plasma")
+
+
+```
+
+
+
+
+
+

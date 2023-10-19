@@ -1,0 +1,131 @@
+---
+title: "exp027j2"
+output: html_notebook
+---
+
+# libraries
+
+```{r}
+library(tidyverse)
+```
+
+# directories
+
+```{r}
+# set directory path for input data (NOTE ONLY USE CORRECTED DATA)
+input_free <- "./input/"
+
+# output
+output_directory <- "./output/"
+```
+
+
+# import data
+```{r}
+
+# Get a list of all files in the directory
+file_list <- list.files(path = input_free, pattern = "\\.xlsx", full.names=T, recursive=T)
+
+# read each file into a list
+data_list <- lapply(file_list, function(x){readxl::read_excel(path=x, sheet="cor_abs")})
+
+# merge all data into a single df
+hilic.df <- map_dfr(data_list, identity, .id = "id")
+
+```
+
+
+update hilic.df: melt to tidy format, trim away columns
+```{r}
+hilic.df <-
+  hilic.df %>%
+    pivot_longer(names_to = "Sample", cols=starts_with("exp0"), values_to = "IonCount") %>%
+      select(id, formula, compound, isotopeLabel, Sample, IonCount)
+```
+
+## remove duplicates:
+sometimes I pull the same compound from multiple methods for the same sample. These duplicates have different values for ion counts. Here we remove duplicates by assuming the best signal is the observed compound with the best signal
+```{r}
+# remove duplicates, save to hilic.df
+hilic.df <-
+  hilic.df %>% group_by(Sample, compound, id) %>% # id indicates the source file
+    summarise(sumIC = sum(IonCount, na.rm=T)) %>%
+      filter(sumIC > 0) %>%
+      group_by(Sample, compound) %>%
+        mutate(best.source = if_else(max(sumIC) == sumIC, id, "0")) %>%
+          filter(best.source != "0") %>%
+            select(Sample, compound, best.source) %>%
+              rename(id = best.source) %>%
+    left_join( . , hilic.df)
+```
+Some duplicates are perfect duplicates - this is usually caused by the same compound being pulled twice from the same mzXML (or some glitch in El-Maven that duplicates rows). I think this is also caused by the same compound being picked from the same mzXML but reported in separate files (ie i forgot i already picked valine before, and i picked it again in a new file). Here, keep one of the duplicates.
+```{r}
+# find these duplicates
+hilic.df %>% filter(isotopeLabel == "C12 PARENT") %>%
+  group_by(Sample, compound, isotopeLabel, IonCount) %>%
+    summarise(obs = n()) %>%
+      arrange(desc(obs))
+
+# use "distinct" to remove all perfect duplicates.  First i remove the ID column as well.
+hilic.df <- hilic.df %>% select(-id) %>% distinct()
+
+# check for duplicates
+hilic.df %>% filter(isotopeLabel == "C12 PARENT") %>%
+  group_by(Sample, compound, isotopeLabel, IonCount) %>%
+    summarise(obs = n()) %>%
+      arrange(desc(obs))
+```
+
+# calculate PeakData fraction for each compound in each sample
+```{r}
+hilic.df <-
+  hilic.df %>%
+    group_by(compound, Sample) %>%
+      mutate(sumIC = sum(IonCount, na.rm=T),
+             fraction.all = IonCount/sumIC) %>%
+        ungroup()
+```
+
+
+# import and label sample info
+```{r}
+
+sample.reference <- readxl::read_xlsx("./exp027j2_samples.xlsx")
+
+labeled.data <- full_join(hilic.df, sample.reference)
+
+# filter to remove blanks / samples that were not included ins sample sheet
+labeled.data <- labeled.data %>% filter( ! is.na(Method)) %>% filter(! is.na(IonCount))
+
+labeled.data %>% summary()
+
+```
+
+# save labeled.data to tsv file used by other tools
+```{r}
+
+write_tsv(x = labeled.data, file= paste0(output_directory, "labeled data.tsv"))
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
